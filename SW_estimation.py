@@ -411,7 +411,7 @@ class MainWindow(QMainWindow):
         
         Vlv_vector = volumes_model[:,0] + Vlv_u
                 
-        Plv_modeled = [Elv*Esin(t_value, T)*v_value for t_value, v_value in zip(FN_solver_times, volumes_model[:,0])]
+        Plv_modeled = [Elv*Esin(t_value, T)*v_value for t_value, v_value in zip(FN_solver_times, Vlv_vector[-200:])]
         
         Emax_cur = find_emax(np.array(Plv_modeled[-200:]), Vlv_vector[-200:], 0.0)
         Emin_cur = find_emin(np.array(Plv_modeled[-200:]), Vlv_vector[-200:], 0.0)
