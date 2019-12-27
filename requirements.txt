@@ -1,0 +1,6 @@
+numpy==1.17.3
+matplotlib==3.0.3
+pyqtgraph==0.10.0
+guidata==1.7.6
+PyQt4==4.11.4
+scipy==1.4.1
