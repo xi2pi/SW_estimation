@@ -36,6 +36,8 @@ After clicking on the "Compute" button, the program runs an optimization process
 
 After finishing, the PV loop is plotted and other computation results are shown in the bottom half of the window.
 The red lines graphically represent the boundaries (Pmax, Vmax, and Vmin) of the PV loop.
+![Program](fig/fig5.png)
+
 
 ## Methods
 The method is based on a lumped parameter model that was developed by Pironet et al. (see references). The model is fitted to the predefined parameters Pmax, Vmax, and Vmin.
