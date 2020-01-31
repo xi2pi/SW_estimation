@@ -21,7 +21,14 @@ from PyQt4 import QtCore
 from scipy.integrate import odeint
 import scipy.optimize as optimization
 
-#import ode_solver
+from matplotlib.figure import Figure
+from matplotlib.backends.backend_qt4agg import FigureCanvasQTAgg as FigureCanvas
+
+def make_patch_spines_invisible(ax):
+    ax.set_frame_on(True)
+    ax.patch.set_visible(False)
+    for sp in ax.spines.values():
+        sp.set_visible(False)
 
 def find_emax(P_loop, V_loop, Vd):
     E_loop = P_loop/(V_loop-Vd)
@@ -53,65 +60,6 @@ def compute_work(Emax, Emin, P, V):
     print("W out " + str(W_out))
     return(W_in-W_out)
     
-def error_function(tuning_parameters, EDV, ESV, Plv, T, Eao, Evc, Rmt, Rao):
-    Elv, Rsys, SBV = tuning_parameters
-
-    Vlv_u = 0
-
-    
-    # defining initial conditions
-    dVlv_0 = SBV/3
-    dVao_0 = SBV/3
-    dVvc_0 = SBV/3
-    
-    
-    if all(i > 0 for i in tuning_parameters):
-        # parameter 
-        parameter = [Elv, Eao, Evc, Rsys, Rmt, Rao, SBV, T]
-        
-        init_states = [dVlv_0, dVao_0, dVvc_0]
-        
-        # find init
-        n_times = 100
-        FN_solver_times = np.linspace(0, 20, n_times)
-        ode_model = LPM_6elements(FN_solver_times)
-        volumes_model_init = ode_model.simulate(parameter, init_states)            
-        
-      
-        # init states 
-        #init_states = [dVao_0, dVvc_0, dVpa_0, dVpu_0, dVlv_0, dVrv_0]
-        init_states = [volumes_model_init[:,0][-1], volumes_model_init[:,1][-1], volumes_model_init[:,2][-1]]
-        
-        n_times = 1000
-        FN_solver_times = np.linspace(0, T*5, n_times)
-        
-        # model - simulation
-        ode_model = LPM_6elements(FN_solver_times)
-        volumes_model = ode_model.simulate(parameter, init_states)
-        
-        Vlv_vector = volumes_model[:,0] + Vlv_u
-        
-        ESV_modeled =  min(Vlv_vector[-200:])
-        EDV_modeled =  max(Vlv_vector[-200:])
-        
-
-        Plv_modeled = [Elv*Esin(t_value, T)*v_value for t_value, v_value in zip(FN_solver_times, volumes_model[:,0])]
-        
-        
-        error_ESV = (ESV - ESV_modeled)**2
-        error_EDV = (EDV - EDV_modeled)**2
-
-#        error_Plv = (Plv_measured(x) - max(Plv_modeled[-100:]))**2
-        error_Plv = (Plv - max(Plv_modeled[-200:]))**2
-        
-        error_total = error_ESV + error_EDV + error_Plv 
-    else:
-        error_total = np.inf
-
-    print(error_total)    
-
-    return error_total
-
 
 # Model
 class LPM_6elements(object):
@@ -139,16 +87,14 @@ class LPM_6elements(object):
             Vlv, Vao, Vvc = y
 
             
-            
             # model equations
             Pao = P_(Eao, Vao)
             Pvc = P_(Evc, Vvc) 
             
-        #    Plv = Elv*e_lv(t,T,Wlv)*Vlv 
+            # Plv = Elv*e_lv(t,T,Wlv)*Vlv 
             Plv = Elv*Esin(t, T)*Vlv
             
             Qc = Q_(Pao, Pvc, Rc)
-            
             Qi = Q_valves_(Pvc, Plv, Ri)
             Qo = Q_valves_(Plv, Pao, Ro)
         
@@ -161,9 +107,7 @@ class LPM_6elements(object):
         
         # elastance of the left ventricle            
         def Esin(t, T):
-#            T = 0.5                 #s Datensatz IM
             Tsys = 0.3*np.sqrt(T)   #s Samar (2005)
-                #Tsys = 0.3
             Tir = 0.5*Tsys #s Datensatz IM
             heart_cycle = int(t/T)
         
@@ -172,10 +116,8 @@ class LPM_6elements(object):
                 return int(0)
             elif ((Tsys < t) & (t < Tsys + Tir)):
                 return 0.5*(1+np.cos(np.pi*((t-Tsys)/Tir)))
-                #return 0.5*(1-np.cos(((t-Tsys)/Tir)))
             elif ((0 < t) & (t < Tsys)):
                 return 0.5*(1-np.cos(np.pi*(t/Tsys)))
-                #return 0.5*(1-np.cos((t/Tsys)))
             else:
                 return 0
         
@@ -206,7 +148,6 @@ class LPM_6elements(object):
             
 def Esin(t, T):
     Tsys = 0.3*np.sqrt(T)   #s Samar (2005)
-        #Tsys = 0.3
     Tir = 0.5*Tsys #s Datensatz IM
     heart_cycle = int(t/T)
 
@@ -226,6 +167,85 @@ def Esin(t, T):
 class SmoothGUI(DataSet):
 
     fname = FileOpenItem("Open file", ("txt", "csv"), "")
+    
+class TaskManager(QtCore.QObject):
+    error_signal = QtCore.pyqtSignal(list)
+
+    def __init__(self, parent=None):
+        QtCore.QObject.__init__(self, parent)
+        self.para_start = 0
+        self.parameter = (0,0, 0, 0, 0, 0, 0, 0)
+        self.error_vector = []
+    
+    def error_function(self, tuning_parameters, EDV, ESV, Plv, T, Eao, Evc, Rmt, Rao):
+        Elv, Rsys, SBV = tuning_parameters
+    
+        Vlv_u = 0
+    
+        # defining initial conditions
+        dVlv_0 = SBV/3
+        dVao_0 = SBV/3
+        dVvc_0 = SBV/3
+        
+        
+        if all(i > 0 for i in tuning_parameters):
+            # parameter 
+            parameter = [Elv, Eao, Evc, Rsys, Rmt, Rao, SBV, T]
+            
+            init_states = [dVlv_0, dVao_0, dVvc_0]
+            
+            # find init
+            n_times = 100
+            FN_solver_times = np.linspace(0, 20, n_times)
+            ode_model = LPM_6elements(FN_solver_times)
+            volumes_model_init = ode_model.simulate(parameter, init_states)            
+            
+          
+            # init states 
+            #init_states = [dVao_0, dVvc_0, dVpa_0, dVpu_0, dVlv_0, dVrv_0]
+            init_states = [volumes_model_init[:,0][-1], volumes_model_init[:,1][-1], volumes_model_init[:,2][-1]]
+            
+            n_times = 1000
+            FN_solver_times = np.linspace(0, T*5, n_times)
+            
+            # model - simulation
+            ode_model = LPM_6elements(FN_solver_times)
+            volumes_model = ode_model.simulate(parameter, init_states)
+            
+            Vlv_vector = volumes_model[:,0] + Vlv_u
+            
+            ESV_modeled =  min(Vlv_vector[-200:])
+            EDV_modeled =  max(Vlv_vector[-200:])
+            
+    
+            Plv_modeled = [Elv*Esin(t_value, T)*v_value for t_value, v_value in zip(FN_solver_times, volumes_model[:,0])]
+            
+            
+            error_ESV = (ESV - ESV_modeled)**2
+            error_EDV = (EDV - EDV_modeled)**2
+    
+
+            error_Plv = (Plv - max(Plv_modeled[-200:]))**2
+            
+            error_total = error_ESV + error_EDV + error_Plv 
+        else:
+            error_total = np.inf
+    
+        print(error_total)
+        
+        self.error_vector.append(error_total)
+        self.error_signal.emit(self.error_vector)
+        return error_total
+                
+    
+
+    def start_process(self):
+        res_LPM =  optimization.minimize(self.error_function,
+                                         self.para_start, 
+                                         args=self.parameter,
+                                         method='Nelder-Mead')
+                                         
+
     
 
 
@@ -268,14 +288,31 @@ class MainWindow(QMainWindow):
         
         self.pw2 = PG.PlotWidget(name='VTC')
         self.pw2.setBackground((255,255,255))
-        self.pw2.setLabel('left', 'Pressure', units='mmHg')
+        self.pw2.setLabel('left', 'Error', units='mmHg')
         self.pw2.setLabel('bottom', 'Time', units='s')
         
-        self.pw3 = PG.PlotWidget(name='PV')
-        self.pw3.setBackground((255,255,255))
-        self.pw3.setLabel('left', 'Pressure', units='mmHg')
-        self.pw3.setLabel('bottom', 'Volume', units='ml')
+        self.fig1 = FigureCanvas(Figure(figsize=(5, 3), tight_layout=True))
+        self._fig1 = self.fig1.figure.subplots()
+#        self._fig1.set_xlim([0, 300])
+#        self._fig1.set_ylim([0, 10**6])
+        self._fig1.grid()
         
+        self.fig2 = FigureCanvas(Figure(figsize=(5, 3), tight_layout=True))
+        self._fig2 = self.fig2.figure.subplots()
+        self._fig2.set_xlim([0, 300])
+        self._fig2.set_ylim([-1, 10**6])
+        self._fig2.set_yscale('symlog')
+        self._fig2.grid()
+        
+        self.fig3 = FigureCanvas(Figure(figsize=(5, 3), tight_layout=True))
+        self._fig3 = self.fig3.figure.subplots()
+        self._fig3_2 = self._fig3.twinx()
+        self._fig3_3 = self._fig3.twinx()
+        
+        self._fig3.set_xlim([0, 300])
+        #self._fig3.set_ylim([0, ])
+        self._fig3.grid()
+           
         #horizontalLayout = QtGui.QHBoxLayout(self)
         splitter = QSplitter(QtCore.Qt.Vertical)
         splitter2 = QSplitter(QtCore.Qt.Vertical)
@@ -283,9 +320,9 @@ class MainWindow(QMainWindow):
         
         #splitter.addWidget(self.dropDownMenu)
         splitter.addWidget(self.loadButton)
-        splitter.addWidget(self.pw1)
-        splitter.addWidget(self.pw2)
-#        splitter.addWidget(self.pw3)
+        splitter.addWidget(self.fig1)
+        splitter.addWidget(self.fig2)
+        splitter.addWidget(self.fig3)
         
         splitter2.addWidget(self.table1)
         splitter2.addWidget(self.table2)
@@ -350,18 +387,142 @@ class MainWindow(QMainWindow):
         tip="Quit application",
         triggered=self.close)
         add_actions(file_menu, (quit_action, ))
+    
+
+
+        
+    def error_function(self, tuning_parameters, EDV, ESV, Plv, T, Eao, Evc, Rmt, Rao):
+        Elv, Rsys, SBV = tuning_parameters
+    
+        Vlv_u = 0
+    
+        # defining initial conditions
+        dVlv_0 = SBV/3
+        dVao_0 = SBV/3
+        dVvc_0 = SBV/3
+        
+        
+        if all(i > 0 for i in tuning_parameters):
+            # parameter 
+            parameter = [Elv, Eao, Evc, Rsys, Rmt, Rao, SBV, T]
+            
+            init_states = [dVlv_0, dVao_0, dVvc_0]
+            
+            # find init
+            n_times = 100
+            FN_solver_times = np.linspace(0, 20, n_times)
+            ode_model = LPM_6elements(FN_solver_times)
+            volumes_model_init = ode_model.simulate(parameter, init_states)            
+            
+          
+            # init states 
+            #init_states = [dVao_0, dVvc_0, dVpa_0, dVpu_0, dVlv_0, dVrv_0]
+            init_states = [volumes_model_init[:,0][-1], volumes_model_init[:,1][-1], volumes_model_init[:,2][-1]]
+            
+            n_times = 1000
+            FN_solver_times = np.linspace(0, T*5, n_times)
+            
+            # model - simulation
+            ode_model = LPM_6elements(FN_solver_times)
+            volumes_model = ode_model.simulate(parameter, init_states)
+            
+            Vlv_vector = volumes_model[:,0] + Vlv_u
+            
+            ESV_modeled =  min(Vlv_vector[-200:])
+            EDV_modeled =  max(Vlv_vector[-200:])
+            
+    
+            Plv_modeled = [Elv*Esin(t_value, T)*v_value for t_value, v_value in zip(FN_solver_times, volumes_model[:,0])]
+            
+            
+            error_ESV = (ESV - ESV_modeled)**2
+            error_EDV = (EDV - EDV_modeled)**2
+    
+
+            error_Plv = (Plv - max(Plv_modeled[-200:]))**2
+            
+            error_total = error_ESV + error_EDV + error_Plv 
+        else:
+            error_total = np.inf
+    
+        print(error_total)
+        self.error_vector.append(error_total)
+        self.Elv_vector.append(Elv)
+        self.Rsys_vector.append(Rsys)
+        self.SBV_vector.append(SBV)
+        
+        self._fig1.clear()
+        try:
+            self._fig1.plot(Vlv_vector[-200:], Plv_modeled[-200:], "k")
+        except:
+            print("error")
+            
+        self._fig1.set_xlim([-5, 200])
+        self._fig1.set_ylim([-10, 190])
+        self._fig1.set_xlabel("Volume [ml]")
+        self._fig1.set_ylabel("Pressure [mmHg]")
+        self._fig1.hlines(Plv, -10, 200, linestyles='dashed')
+        self._fig1.vlines(ESV, -10, 200, linestyles='dashed')
+        self._fig1.vlines(EDV, -10, 200, linestyles='dashed')
+        self._fig1.grid()
+        self.fig1.draw()        
+        
+        self._fig2.clear()
+        self._fig2.plot(self.error_vector, "k")
+        self._fig2.set_xlim([0, 300])
+        self._fig2.set_ylim([-1, 10**6])
+        self._fig2.set_xlabel("Iteration [-]")
+        self._fig2.set_ylabel(r"$f_{error}$ [-]")
+        self._fig2.set_yscale('symlog')
+        self._fig2.grid()
+        self.fig2.draw()
+        
+        
+        self._fig3.clear()
+        self._fig3_2.clear()
+        self._fig3_3.clear()
+        self._fig3.plot(self.Elv_vector, "r")
+        self._fig3_2.plot(self.Rsys_vector, "g")
+        self._fig3_3.plot(self.SBV_vector, "b")        
+        
+        self._fig3.set_xlim([0, 300])
+        self._fig3.set_ylim([0, 5])
+        self._fig3_2.set_ylim([0, 5])
+        self._fig3_3.set_ylim([0, 500])
+        
+        self._fig3.set_xlabel("Iteration [-]")
+        self._fig3.set_ylabel(r"$E_{lv}$", color="r")
+        self._fig3.tick_params(axis='y', labelcolor="r")
+        self._fig3_2.set_ylabel(r"$R_{c}$", color="g")
+        self._fig3_2.tick_params(axis='y', labelcolor="g")
+        self._fig3_3.set_ylabel(r"$SBV$", color="b")
+        self._fig3_3.tick_params(axis='y', labelcolor="b")
+        self._fig3.grid()
+        self._fig3_3.spines["right"].set_position(("axes", 1.2))
+        make_patch_spines_invisible(self._fig3_3)
+        # Second, show the right spine.
+        self._fig3_3.spines["right"].set_visible(True)
+        self.fig3.draw()        
+        
+        QtCore.QCoreApplication.processEvents()
+
+
+        return error_total
         
 
     def clearPlots(self):
         self.pw1.clear()
         self.pw2.clear()
-        self.pw3.clear()
          
     def on_click(self):
-   
-        self.pw1.addLine(x=None, y=float(self.table1.item(5,1).text()) , pen=PG.mkPen('r', width=3))
-        self.pw1.addLine(x=float(self.table1.item(6,1).text()), y=None, pen=PG.mkPen('r', width=3))
-        self.pw1.addLine(x=float(self.table1.item(7,1).text()), y=None, pen=PG.mkPen('r', width=3))
+        self.error_vector = []
+        self.Elv_vector = []
+        self.Rsys_vector = []
+        self.SBV_vector = []
+        
+#        self.pw1.addLine(x=None, y=float(self.table1.item(5,1).text()) , pen=PG.mkPen('r', width=3))
+#        self.pw1.addLine(x=float(self.table1.item(6,1).text()), y=None, pen=PG.mkPen('r', width=3))
+#        self.pw1.addLine(x=float(self.table1.item(7,1).text()), y=None, pen=PG.mkPen('r', width=3))
         # parameters
         Eao = float(self.table1.item(0,1).text()) 
         Evc = float(self.table1.item(1,1).text())    
@@ -375,7 +536,27 @@ class MainWindow(QMainWindow):
         T = float(self.table1.item(8,1).text())
         
         para_start = [2, 0.8, 500]
-        res_LPM =  optimization.minimize(error_function, para_start, args=(EDV, ESV, Psys, T, Eao, Evc, Rmt, Rao), method='Nelder-Mead')
+        
+#        process = QProcess(self)
+#        process.finished.connect(self.onFinished)
+#        process.startDetached(command, args)
+        
+        res_LPM =  optimization.minimize(self.error_function,
+                                         para_start, 
+                                         args=(EDV, ESV, Psys, T, Eao, Evc, Rmt, Rao),
+                                         method='Nelder-Mead')
+        
+        
+#        manager = TaskManager()
+#        manager.para_start = para_start
+#        manager.parameter = (EDV, ESV, Psys, T, Eao, Evc, Rmt, Rao)
+#        manager.start_process()
+        
+#        manager.resultsChanged.connect(self.on_finished)
+#        process = QtCore.QProcess(self)
+#        process.readyReadStandardOutput.connect(self.plotError)
+#        process.start(command, cmd_arg, QtCore.QIODevice.ReadOnly)
+
 
         Elv = res_LPM.x[0]
         Rsys =  res_LPM.x[1]
