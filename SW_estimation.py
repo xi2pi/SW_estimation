@@ -138,8 +138,6 @@ class LPM_6elements(object):
              return E*V
                 
         values = odeint(model_ode, [dVlv_0, dVao_0, dVvc_0], times, (parameters,))
-        
-
        
         return values
         
@@ -168,86 +166,7 @@ class SmoothGUI(DataSet):
 
     fname = FileOpenItem("Open file", ("txt", "csv"), "")
     
-class TaskManager(QtCore.QObject):
-    error_signal = QtCore.pyqtSignal(list)
-
-    def __init__(self, parent=None):
-        QtCore.QObject.__init__(self, parent)
-        self.para_start = 0
-        self.parameter = (0,0, 0, 0, 0, 0, 0, 0)
-        self.error_vector = []
-    
-    def error_function(self, tuning_parameters, EDV, ESV, Plv, T, Eao, Evc, Rmt, Rao):
-        Elv, Rsys, SBV = tuning_parameters
-    
-        Vlv_u = 0
-    
-        # defining initial conditions
-        dVlv_0 = SBV/3
-        dVao_0 = SBV/3
-        dVvc_0 = SBV/3
-        
-        
-        if all(i > 0 for i in tuning_parameters):
-            # parameter 
-            parameter = [Elv, Eao, Evc, Rsys, Rmt, Rao, SBV, T]
-            
-            init_states = [dVlv_0, dVao_0, dVvc_0]
-            
-            # find init
-            n_times = 100
-            FN_solver_times = np.linspace(0, 20, n_times)
-            ode_model = LPM_6elements(FN_solver_times)
-            volumes_model_init = ode_model.simulate(parameter, init_states)            
-            
-          
-            # init states 
-            #init_states = [dVao_0, dVvc_0, dVpa_0, dVpu_0, dVlv_0, dVrv_0]
-            init_states = [volumes_model_init[:,0][-1], volumes_model_init[:,1][-1], volumes_model_init[:,2][-1]]
-            
-            n_times = 1000
-            FN_solver_times = np.linspace(0, T*5, n_times)
-            
-            # model - simulation
-            ode_model = LPM_6elements(FN_solver_times)
-            volumes_model = ode_model.simulate(parameter, init_states)
-            
-            Vlv_vector = volumes_model[:,0] + Vlv_u
-            
-            ESV_modeled =  min(Vlv_vector[-200:])
-            EDV_modeled =  max(Vlv_vector[-200:])
-            
-    
-            Plv_modeled = [Elv*Esin(t_value, T)*v_value for t_value, v_value in zip(FN_solver_times, volumes_model[:,0])]
-            
-            
-            error_ESV = (ESV - ESV_modeled)**2
-            error_EDV = (EDV - EDV_modeled)**2
-    
-
-            error_Plv = (Plv - max(Plv_modeled[-200:]))**2
-            
-            error_total = error_ESV + error_EDV + error_Plv 
-        else:
-            error_total = np.inf
-    
-        print(error_total)
-        
-        self.error_vector.append(error_total)
-        self.error_signal.emit(self.error_vector)
-        return error_total
-                
-    
-
-    def start_process(self):
-        res_LPM =  optimization.minimize(self.error_function,
-                                         self.para_start, 
-                                         args=self.parameter,
-                                         method='Nelder-Mead')
-                                         
-
-    
-
+                                        
 
 #-----------------------------------
 class MainWindow(QMainWindow):
@@ -271,8 +190,6 @@ class MainWindow(QMainWindow):
         self.dropDownMenu = QtGui.QComboBox()
         self.dropDownMenu.addItems(["Vao", "Vvc", "Vpa", "Vpu", "Vlv", "Vrv", "all"])
         
-
-
         self.table1 = QtGui.QTableWidget()
         self.table2 = QtGui.QTableWidget()
          
@@ -293,8 +210,6 @@ class MainWindow(QMainWindow):
         
         self.fig1 = FigureCanvas(Figure(figsize=(5, 3), tight_layout=True))
         self._fig1 = self.fig1.figure.subplots()
-#        self._fig1.set_xlim([0, 300])
-#        self._fig1.set_ylim([0, 10**6])
         self._fig1.grid()
         
         self.fig2 = FigureCanvas(Figure(figsize=(5, 3), tight_layout=True))
@@ -310,7 +225,6 @@ class MainWindow(QMainWindow):
         self._fig3_3 = self._fig3.twinx()
         
         self._fig3.set_xlim([0, 300])
-        #self._fig3.set_ylim([0, ])
         self._fig3.grid()
            
         #horizontalLayout = QtGui.QHBoxLayout(self)
@@ -520,9 +434,6 @@ class MainWindow(QMainWindow):
         self.Rsys_vector = []
         self.SBV_vector = []
         
-#        self.pw1.addLine(x=None, y=float(self.table1.item(5,1).text()) , pen=PG.mkPen('r', width=3))
-#        self.pw1.addLine(x=float(self.table1.item(6,1).text()), y=None, pen=PG.mkPen('r', width=3))
-#        self.pw1.addLine(x=float(self.table1.item(7,1).text()), y=None, pen=PG.mkPen('r', width=3))
         # parameters
         Eao = float(self.table1.item(0,1).text()) 
         Evc = float(self.table1.item(1,1).text())    
@@ -537,30 +448,14 @@ class MainWindow(QMainWindow):
         
         para_start = [2, 0.8, 500]
         
-#        process = QProcess(self)
-#        process.finished.connect(self.onFinished)
-#        process.startDetached(command, args)
-        
         res_LPM =  optimization.minimize(self.error_function,
                                          para_start, 
                                          args=(EDV, ESV, Psys, T, Eao, Evc, Rmt, Rao),
                                          method='Nelder-Mead')
-        
-        
-#        manager = TaskManager()
-#        manager.para_start = para_start
-#        manager.parameter = (EDV, ESV, Psys, T, Eao, Evc, Rmt, Rao)
-#        manager.start_process()
-        
-#        manager.resultsChanged.connect(self.on_finished)
-#        process = QtCore.QProcess(self)
-#        process.readyReadStandardOutput.connect(self.plotError)
-#        process.start(command, cmd_arg, QtCore.QIODevice.ReadOnly)
-
-
-        Elv = res_LPM.x[0]
+         
+        Elv =   res_LPM.x[0]
         Rsys =  res_LPM.x[1]
-        SBV = res_LPM.x[2]
+        SBV =   res_LPM.x[2]
         
         Vlv_u = 0
         
