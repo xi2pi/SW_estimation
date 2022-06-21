@@ -1,4 +1,4 @@
-numpy==1.17.3
+numpy==1.22.0
 matplotlib==3.0.3
 pyqtgraph==0.10.0
 guidata==1.7.6
